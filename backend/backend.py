@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile
 import whisper
-from b_transcription import router as fb_router
-from b_case import router as text_router
+from backend.transcription import router as fb_router
+from backend.case import router as text_router
 
 app = FastAPI()
 

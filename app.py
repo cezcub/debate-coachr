@@ -1,6 +1,6 @@
 import streamlit as st
-from f_pf_feedback import get_feedback
-from f_case import text_upload
+from frontend.pf_feedback import get_feedback
+from frontend.case import text_upload
 
 FASTAPI_URL = "http://127.0.0.1:8000/"
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import JSONResponse
-from b_azure import case_feedback
+from backend.azure import case_feedback
 
 router = APIRouter()
 

@@ -4,7 +4,7 @@ from fastapi import UploadFile, APIRouter, File
 from fastapi.responses import JSONResponse
 from pydub import AudioSegment
 import whisper
-from b_azure import pf_feedback
+from backend.azure import pf_feedback
 
 router = APIRouter()
 
