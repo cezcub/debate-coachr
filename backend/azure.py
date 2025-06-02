@@ -3,7 +3,7 @@ from openai import AzureOpenAI
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv('../.env', override=True)  # Override system env vars with .env file values
     
 def call_ai(sys_prompt, user_prompt):
     # Get Azure OpenAI credentials from environment variables
@@ -15,12 +15,12 @@ def call_ai(sys_prompt, user_prompt):
     
     client = AzureOpenAI(
         api_key=api_key,  
-        api_version="2024-10-21",
+        api_version="2024-12-01-preview",
         azure_endpoint=endpoint
         )
     try:
         completion = client.chat.completions.create(
-            model='gpt-4o',
+            model='gpt-4.1',
             messages=[
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_prompt}
