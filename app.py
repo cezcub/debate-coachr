@@ -94,7 +94,7 @@ def main():
             - MP3, WAV, OGG, FLAC, M4A
             
             **Text Files:**
-            - TXT files only
+            - TXT, DOCX, PDF
             """)
         
         with st.expander("💡 Tips for Better Results", expanded=False):
@@ -113,7 +113,7 @@ def main():
             # Enhanced topic input with better placeholder
             debate_topic = st.text_input(
                 "🎭 Debate Topic/Resolution",
-                placeholder="e.g., This house believes that artificial intelligence should be regulated",
+                placeholder="e.g., Resolved: The United States Federal Government should regulate artificial intelligence",
                 help="📌 Be specific! Include the exact resolution or topic for more targeted feedback.",
                 key="debate_topic"
             )

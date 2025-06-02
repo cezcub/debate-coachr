@@ -5,7 +5,7 @@ from backend.azure import case_feedback
 router = APIRouter()
 
 @router.post("/process-text/")
-async def process_text(file: UploadFile = File(...)):
+async def process_text(file: UploadFile = File(...), debate_topic: str = ""):
     """
     Endpoint to process an uploaded text file.
     """
@@ -15,9 +15,10 @@ async def process_text(file: UploadFile = File(...)):
         text = content.decode("utf-8")
 
         # Send to Azure
-        output = case_feedback(text)
+        output = case_feedback(debate_topic, text)
         # For now, we'll just return the text as-is
 
         return JSONResponse(content={"processed_text": output}, status_code=200)
     except Exception as e:
+        print(e)
         return JSONResponse(content={"error": str(e)}, status_code=500)

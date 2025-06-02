@@ -144,6 +144,24 @@ def get_feedback(temp_audio_path, url, debate_topic):
                     st.markdown("#### 📈 Track Your Progress")
                     if st.button("📊 View Progress Dashboard", use_container_width=True):
                         st.info("Progress tracking feature coming soon!")
+                
+                # **NEW: Live Chat Feature** - Interactive discussion with AI coach
+                if azure_output:  # Only show chat if we have feedback to discuss
+                    with st.expander("💬 Chat with Your AI Coach", expanded=False):
+                        st.markdown("Discuss your feedback in real-time with your AI debate coach!")
+                        
+                        # Import and render chat interface
+                        try:
+                            from frontend.chat import render_chat_interface, render_chat_suggestions
+                            render_chat_interface(azure_output, debate_topic)
+                            
+                            # Show suggested questions to help users get started
+                            with st.expander("💡 Need inspiration? Try these questions"):
+                                render_chat_suggestions()
+                                
+                        except Exception as chat_error:
+                            st.error(f"Chat feature temporarily unavailable: {str(chat_error)}")
+                            st.info("You can still review and download your feedback above.")
             
             else:
                 progress_bar.empty()
@@ -152,17 +170,35 @@ def get_feedback(temp_audio_path, url, debate_topic):
                 error_msg = response.json().get('error', 'Unknown error occurred')
                 st.error(f"❌ Analysis failed: {error_msg}")
                 
-                # **TIP 12: Helpful error guidance**
+                # **TIP 12: Enhanced error guidance** for Azure connection issues
                 with st.expander("🔧 Troubleshooting"):
-                    st.markdown("""
-                    **Common issues and solutions:**
-                    
-                    - **Audio Quality**: Ensure your audio is clear and not too quiet
-                    - **File Format**: Try converting to MP3 or WAV format
-                    - **File Size**: Large files may take longer or fail to process
-                    - **Network**: Check your internet connection
-                    - **Topic**: Ensure you've entered a clear debate topic
-                    """)
+                    if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
+                        st.markdown("""
+                        **Azure Authentication Issue:**
+                        
+                        - ❌ The AI service authentication failed
+                        - 🔑 This usually means the API key is invalid or missing
+                        - 👨‍💻 Please contact the administrator to check Azure OpenAI credentials
+                        """)
+                    elif "connection" in error_msg.lower() or "endpoint" in error_msg.lower():
+                        st.markdown("""
+                        **Connection Issue:**
+                        
+                        - 🌐 Cannot connect to Azure OpenAI service
+                        - 📡 This could be a network or configuration issue
+                        - 🔗 Please check the Azure endpoint configuration
+                        """)
+                    else:
+                        st.markdown("""
+                        **Common issues and solutions:**
+                        
+                        - **Audio Quality**: Ensure your audio is clear and not too quiet
+                        - **File Format**: Try converting to MP3 or WAV format
+                        - **File Size**: Large files may take longer or fail to process
+                        - **Network**: Check your internet connection
+                        - **Topic**: Ensure you've entered a clear debate topic
+                        - **AI Service**: The AI analysis service may be temporarily unavailable
+                        """)
                 
                 # **TIP 13: Support contact**
                 st.info("💬 If the problem persists, please contact support with the error details above.")

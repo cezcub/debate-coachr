@@ -10,13 +10,13 @@ def text_upload(debate_topic):
     st.markdown("#### 📄 Text Analysis")
     st.markdown(
         """
-        Upload your debate transcript (in TXT format) for comprehensive AI analysis and feedback.
+        Upload your debate case (in TXT format) for comprehensive AI analysis and feedback.
         """
     )
     
     # **TIP 2: Enhanced file uploader** with better styling and validation
     uploaded_file = st.file_uploader(
-        "Choose your debate transcript",
+        "Choose your debate case",
         type=["txt"],
         help="💡 Upload a plain text file (.txt) containing your debate transcript",
         key="text_file_uploader"
@@ -103,6 +103,23 @@ def text_upload(debate_topic):
                                     file_name=f"debate_analysis_{uploaded_file.name}",
                                     mime="text/plain"
                                 )
+                        
+                        # **NEW: Live Chat Feature** - Interactive discussion with AI coach
+                        with st.expander("💬 Chat with Your AI Coach", expanded=False):
+                            st.markdown("Discuss your text analysis in real-time with your AI debate coach!")
+                            
+                            # Import and render chat interface
+                            try:
+                                from frontend.chat import render_chat_interface, render_chat_suggestions
+                                render_chat_interface(processed_text, debate_topic)
+                                
+                                # Show suggested questions to help users get started
+                                with st.expander("💡 Need inspiration? Try these questions"):
+                                    render_chat_suggestions()
+                                    
+                            except Exception as chat_error:
+                                st.error(f"Chat feature temporarily unavailable: {str(chat_error)}")
+                                st.info("You can still review and download your feedback above.")
                     
                     else:
                         progress_bar.empty()
