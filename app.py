@@ -12,8 +12,6 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded",
         menu_items={
-            'Get Help': 'https://www.extremelycoolapp.com/help',
-            'Report a bug': "https://www.extremelycoolapp.com/bug",
             'About': "# Coachr AI\nYour intelligent debate coaching assistant powered by Azure OpenAI!"
         }
     )
@@ -37,7 +35,12 @@ def main():
         margin: 1rem 0;
     }
     .stSelectbox > div > div {
-        background-color: #f0f2f6;
+        background-color: #ffffff;
+        color: #262730;
+        border: 1px solid #e6e6e6;
+    }
+    .stSelectbox > div > div > div {
+        color: #262730;
     }
     .upload-area {
         border: 2px dashed #667eea;
