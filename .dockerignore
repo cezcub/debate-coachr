@@ -52,15 +52,11 @@ unit_tests/
 test_cases/
 *.log
 
-# Deployment files (these are for building, not runtime)
-deployment/
-scripts/
-
 # Git
 .git/
 .gitignore
 
-# Documentation (exclude docs from container to reduce size)
+# Docs
 docs/
 
 # Cache directories

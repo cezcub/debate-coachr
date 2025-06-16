@@ -1,9 +1,10 @@
 import streamlit as st
 import requests
+from frontend.chat import render_chat_interface
 
 FASTAPI_URL = "http://127.0.0.1:8000/process-text/"
 
-def text_upload(debate_topic):
+def text_upload(debate_topic, side):
     """Enhanced text file upload with better UI/UX design principles"""
     
     # **TIP 1: Better visual hierarchy** with icons and clear descriptions
@@ -62,7 +63,7 @@ def text_upload(debate_topic):
                     response = requests.post(
                         FASTAPI_URL,
                         files={"file": uploaded_file},
-                        data={"debate_topic": debate_topic},
+                        data={"debate_topic": debate_topic, "side": side},
                     )
                     
                     progress_bar.progress(75, "Processing with AI...")
@@ -73,53 +74,17 @@ def text_upload(debate_topic):
                         
                         processed_text = response.json().get("processed_text", "")
                         
+                        # Store results in session state to persist across reruns
+                        st.session_state.analysis_results = {
+                            "processed_text": processed_text,
+                            "debate_topic": debate_topic,
+                            "filename": uploaded_file.name,
+                            "completed": True
+                        }
+                        
                         # **TIP 8: Celebration and clear results**
                         st.balloons()
                         st.success("🎉 Text analysis completed successfully!")
-                        
-                        # **TIP 9: Better results display** with expandable sections
-                        with st.expander("📊 Analysis Results", expanded=True):
-                            st.markdown("### 🤖 AI Feedback")
-                            st.text_area(
-                                "Detailed Analysis",
-                                processed_text,
-                                height=400,
-                                help="AI-generated feedback based on your debate transcript and topic"
-                            )
-                        
-                        # **TIP 10: Additional actions** for user engagement
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            if st.button("📋 Copy Results"):
-                                st.write("Results copied to clipboard!")
-                        with col2:
-                            if st.button("🔄 Analyze Another"):
-                                st.rerun()
-                        with col3:
-                            if st.button("💾 Download Report"):
-                                st.download_button(
-                                    label="📥 Download as TXT",
-                                    data=processed_text,
-                                    file_name=f"debate_analysis_{uploaded_file.name}",
-                                    mime="text/plain"
-                                )
-                        
-                        # **NEW: Live Chat Feature** - Interactive discussion with AI coach
-                        with st.expander("💬 Chat with Your AI Coach", expanded=False):
-                            st.markdown("Discuss your text analysis in real-time with your AI debate coach!")
-                            
-                            # Import and render chat interface
-                            try:
-                                from frontend.chat import render_chat_interface, render_chat_suggestions
-                                render_chat_interface(processed_text, debate_topic)
-                                
-                                # Show suggested questions to help users get started
-                                with st.expander("💡 Need inspiration? Try these questions"):
-                                    render_chat_suggestions()
-                                    
-                            except Exception as chat_error:
-                                st.error(f"Chat feature temporarily unavailable: {str(chat_error)}")
-                                st.info("You can still review and download your feedback above.")
                     
                     else:
                         progress_bar.empty()
@@ -151,3 +116,53 @@ def text_upload(debate_topic):
     else:
         # **TIP 13: Helpful guidance** when no file is uploaded
         st.info("👆 Please upload a text file to get started with your debate analysis")
+    
+    # Display analysis results if they exist in session state
+    if hasattr(st.session_state, 'analysis_results') and st.session_state.analysis_results.get('completed', False):
+        results = st.session_state.analysis_results
+        processed_text = results['processed_text']
+        debate_topic = results['debate_topic']
+        filename = results['filename']
+        
+        # **TIP 9: Better results display** with expandable sections
+        with st.expander("📊 Analysis Results", expanded=True):
+            st.markdown("### 🤖 AI Feedback")
+            st.markdown(
+                processed_text,
+                help="AI-generated feedback based on your debate transcript and topic"
+            )
+        
+        # **TIP 10: Additional actions** for user engagement
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("📋 Copy Results"):
+                st.write("Results copied to clipboard!")
+        with col2:
+            if st.button("🔄 Analyze Another"):
+                # Clear session state and rerun
+                if 'analysis_results' in st.session_state:
+                    del st.session_state.analysis_results
+                if 'chat_messages' in st.session_state:
+                    del st.session_state.chat_messages
+                st.rerun()
+        with col3:
+            if st.button("💾 Download Report"):
+                st.download_button(
+                    label="📥 Download as TXT",
+                    data=processed_text,
+                    file_name=f"debate_analysis_{filename}",
+                    mime="text/plain"
+                )
+        
+        # Live Chat Feature - Interactive discussion with AI coach
+        with st.expander("💬 Chat with Your AI Coach", expanded=True):
+            st.markdown("Discuss your text analysis in real-time with your AI debate coach!")
+            
+            # Import and render chat interface
+            try:
+                # Use direct Azure connection for reliability
+                render_chat_interface(processed_text, debate_topic, use_api=False)
+                
+            except Exception as chat_error:
+                st.error(f"Chat feature temporarily unavailable: {str(chat_error)}")
+                st.info("You can still review and download your feedback above.")

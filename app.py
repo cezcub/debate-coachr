@@ -1,5 +1,5 @@
 import streamlit as st
-from frontend.pf_feedback import get_feedback
+from frontend.pf_feedback import get_feedback, display_pf_results
 from frontend.case import text_upload
 
 FASTAPI_URL = "http://127.0.0.1:8000/"
@@ -120,19 +120,24 @@ def main():
                 help="📌 Be specific! Include the exact resolution or topic for more targeted feedback.",
                 key="debate_topic"
             )
+
+            side = st.selectbox(
+                "🛡️ Debate Side",
+                ["Affirmative", "Negative"],
+                help="Which side were you debating?",
+                key="debate_side"
+            )
         
         # **TIP 8: Better visual separation** and status indicators
         if option == "🎙️ Audio Analysis":
             st.markdown("### 🎙️ Audio File Upload")
             
             # Custom upload area styling
-            st.markdown('<div class="upload-area">', unsafe_allow_html=True)
             uploaded_file = st.file_uploader(
                 "Choose an audio file",
                 type=["mp3", "wav", "ogg", "flac", "m4a"],
                 help="💡 Tip: Higher quality audio produces better transcription results"
             )
-            st.markdown('</div>', unsafe_allow_html=True)
 
             if uploaded_file is not None:
                 # **TIP 9: Progress indicators** and user feedback
@@ -156,7 +161,7 @@ def main():
                     if st.button("🚀 Get AI Feedback", type="primary", use_container_width=True):
                         with st.spinner("🔄 Processing your audio and generating feedback..."):
                             try:
-                                get_feedback(temp_audio_path, FASTAPI_URL + "transcribe/", debate_topic)
+                                get_feedback(temp_audio_path, FASTAPI_URL + "transcribe/", debate_topic, side)
                                 st.balloons()  # Celebration animation
                                 st.success("🎉 Analysis complete! Your feedback is ready below.")
                             except Exception as e:
@@ -164,15 +169,16 @@ def main():
                 else:
                     st.warning("⚠️ Please enter a debate topic before proceeding")
                     st.button("🚀 Get AI Feedback", disabled=True, use_container_width=True)
+            
+            # Display persistent results if they exist
+            display_pf_results()
 
         elif option == "📄 Text Analysis":
             st.markdown("### 📄 Text File Upload")
             
             # **TIP 12: Consistent styling** across different sections
-            st.markdown('<div class="feature-card">', unsafe_allow_html=True)
             st.markdown("Upload your debate transcript for AI-powered analysis and feedback.")
-            text_upload(debate_topic)
-            st.markdown('</div>', unsafe_allow_html=True)
+            text_upload(debate_topic, side)
 
     # **TIP 13: Footer with additional information** and branding
     st.markdown("---")

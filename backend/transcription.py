@@ -9,7 +9,7 @@ from backend.azure import pf_feedback
 router = APIRouter()
 
 @router.post("/transcribe/")
-async def transcribe_endpoint(file: UploadFile = File(...), model=whisper.load_model("tiny.en"), debate_topic: str = ""):
+async def transcribe_endpoint(file: UploadFile = File(...), model=whisper.load_model("tiny.en"), debate_topic: str = "", side: str = ""):
     try:
         # Save the uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
@@ -29,7 +29,7 @@ async def transcribe_endpoint(file: UploadFile = File(...), model=whisper.load_m
         os.remove(temp_wav_path)
 
         # Process the transcription with Azure OpenAI
-        azure_output = pf_feedback(debate_topic, transcription)
+        azure_output = pf_feedback(debate_topic, transcription, side)
     
         return JSONResponse(
             content={"azure_output": azure_output},

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv('../.env', override=True)  # Override system env vars with .env file values
     
-def call_ai(sys_prompt, user_prompt):
+def call_ai(messages):
     # Get Azure OpenAI credentials from environment variables
     api_key = os.getenv('AZURE_OPENAI_API_KEY')
     endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
@@ -22,8 +22,8 @@ def call_ai(sys_prompt, user_prompt):
         completion = client.chat.completions.create(
             model='gpt-4.1',
             messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": m["role"], "content": m["content"]}
+                for m in messages
             ]
         )
         return completion.choices[0].message.content
@@ -39,10 +39,12 @@ def call_ai(sys_prompt, user_prompt):
         else:
             raise ValueError(f"Azure OpenAI API error: {error_msg}")
 
-def pf_feedback(resolution, transcription):
-    prompt = resolution
-    return call_ai(prompt, transcription)
+def pf_feedback(resolution, transcription, side):
+    prompt = f'You are a public forum debate coach. Your job is to analyze round recordings provided of high school public forum debate and provide detailed feedback on how it went and how to improve. The resolution being debated in this round is {resolution} Give as much feedback (4-5 pieces of feedback per speech at MINIMUM) as possible on the content and strategy of the round. The team you should focus on analyzing and giving feedback to is on the {side} side of the resolution. Explain which team you would have voted for, explain why, and explain how the team requiring feedback could improve.'
+    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": transcription}]
+    return call_ai(messages)
 
-def case_feedback(resolution, case):
-    prompt = f'You are a public forum debate coach. Your job is to analyze cases provided of high school public forum debate and provide detailed feedback on how it could be improved. The resolution being debated in this round is {resolution} Give as much feedback (4-5 pieces of feedback per contention at MINIMUM) as possible on the content and strategy of the case. Make sure to analyze the uniqueness, link, internal link, and impact of each and every contention. Remember that the case will be delivered in a 4 minute speech.'
-    return call_ai(prompt, case)
+def case_feedback(resolution, case, side):
+    prompt = f'You are a public forum debate coach. Your job is to analyze cases provided of high school public forum debate and provide detailed feedback on how it could be improved. The resolution being debated in this round is {resolution} Give as much feedback (4-5 pieces of feedback per contention at MINIMUM) as possible on the content and strategy of the case. The team you are analyzing is debating the {side} side of the resolution. Make sure to analyze the uniqueness, link, internal link, and impact of each and every contention. Remember that the case will be delivered in a 4 minute speech.'
+    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": case}]
+    return call_ai(messages)

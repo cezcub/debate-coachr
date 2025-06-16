@@ -1,9 +1,60 @@
 import streamlit as st
 import time
 import requests
-from backend.azure import call_ai
+import sys
+import os
+
+# Add the parent directory to the path to ensure imports work
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+try:
+    from backend.azure import call_ai
+except ImportError:
+    # Fallback import path
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    from backend.azure import call_ai
 
 CHAT_API_URL = "http://127.0.0.1:8000/chat/"
+
+def clear_chat():
+    """Clear the chat messages and reset session state"""
+    st.session_state.chat_messages = []
+    st.session_state.chat_context = ""
+    st.session_state.chat_topic = ""
+    st.success("🗑️ Chat cleared successfully!")
+    
+def ai_response(user_input, use_api=False):
+    """Generate AI response without UI elements to avoid interference with reruns"""
+    try:
+        if use_api:
+            # Try API first but fall back to direct if it fails
+            assistant_response = generate_chat_response_api(
+                user_input, 
+                st.session_state.chat_context,
+                st.session_state.chat_topic,
+                st.session_state.chat_messages
+            )
+        else:
+            # Use direct Azure connection (recommended)
+            assistant_response = generate_chat_response_direct(
+                user_input, 
+                st.session_state.chat_context,
+                st.session_state.chat_topic,
+                st.session_state.chat_messages
+            )
+        return assistant_response
+    
+    except Exception as e:
+        error_msg = str(e).lower()
+        if any(word in error_msg for word in ["connection", "timeout", "refused", "azure", "api"]):
+            # Store error in session state to display later
+            st.session_state.chat_error = "🔄 AI Coach connection issues - using fallback responses"
+        fallback_response = generate_fallback_response(
+            user_input,
+            st.session_state.chat_context,
+            st.session_state.chat_topic
+        )
+        return "I encountered a technical issue, but here's some general guidance: " + fallback_response
 
 def render_chat_interface(initial_context, debate_topic, use_api=False):
     """
@@ -13,6 +64,7 @@ def render_chat_interface(initial_context, debate_topic, use_api=False):
         initial_context (str): The initial feedback/analysis to provide context
         debate_topic (str): The debate topic for context
         use_api (bool): Whether to use the FastAPI backend or direct Azure calls
+                       Default False since FastAPI backend may not be running
     """
     
     # **TIP 1: Chat UI Header** with clear purpose and styling
@@ -30,8 +82,10 @@ def render_chat_interface(initial_context, debate_topic, use_api=False):
     # **TIP 2: Initialize chat session state**
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
-        st.session_state.chat_context = initial_context
-        st.session_state.chat_topic = debate_topic
+    
+    # Always update context and topic for the current analysis
+    st.session_state.chat_context = initial_context
+    st.session_state.chat_topic = debate_topic
     
     # **TIP 3: Chat container** with better styling
     chat_container = st.container()
@@ -72,16 +126,11 @@ def render_chat_interface(initial_context, debate_topic, use_api=False):
         )
     
     with col2:
-        clear_chat = st.button("🗑️ Clear", use_container_width=True)
+        clear_chat_button = st.button("🗑️ Clear", use_container_width=True, on_click=clear_chat)
     
-    # **TIP 5.5: Additional chat controls**
+    # **TIP 6: Additional chat controls**
     if st.session_state.chat_messages:  # Only show controls if there's a conversation
         render_chat_controls()
-    
-    # **TIP 6: Handle clear chat**
-    if clear_chat:
-        st.session_state.chat_messages = []
-        st.rerun()
     
     # **TIP 7: Process user input**
     if user_input:
@@ -91,55 +140,28 @@ def render_chat_interface(initial_context, debate_topic, use_api=False):
             "content": user_input
         })
         
-        # **TIP 8: Generate AI response** with context
+        # Generate AI response with spinner
         with st.spinner("🤖 AI Coach is thinking..."):
-            try:
-                if use_api:
-                    ai_response = generate_chat_response_api(
-                        user_input, 
-                        st.session_state.chat_context,
-                        st.session_state.chat_topic,
-                        st.session_state.chat_messages
-                    )
-                else:
-                    ai_response = generate_chat_response_direct(
-                        user_input, 
-                        st.session_state.chat_context,
-                        st.session_state.chat_topic,
-                        st.session_state.chat_messages
-                    )
-                
-                # Add AI response to chat
-                st.session_state.chat_messages.append({
-                    "role": "assistant",
-                    "content": ai_response
-                })
-                
-            except Exception as e:
-                error_msg = str(e)
-                if "connection" in error_msg.lower() or "azure" in error_msg.lower():
-                    st.warning("🔄 AI Coach connection issues - using fallback responses")
-                    fallback_response = generate_fallback_response(
-                        user_input,
-                        st.session_state.chat_context,
-                        st.session_state.chat_topic
-                    )
-                    st.session_state.chat_messages.append({
-                        "role": "assistant",
-                        "content": fallback_response
-                    })
-                else:
-                    st.error(f"❌ Error generating response: {str(e)}")
-                    st.session_state.chat_messages.append({
-                        "role": "assistant",
-                        "content": "I'm sorry, I encountered an error. Please try asking your question again."
-                    })
+            assistant_response = ai_response(user_input, use_api)
         
+        # Add AI response to chat
+        st.session_state.chat_messages.append({
+            "role": "assistant",
+            "content": assistant_response
+        })
+        
+        # Show any errors that occurred
+        if hasattr(st.session_state, 'chat_error'):
+            st.warning(st.session_state.chat_error)
+            del st.session_state.chat_error
+        
+        # Trigger rerun to display the new messages
         st.rerun()
 
 def generate_chat_response_api(user_message, initial_context, debate_topic, chat_history):
     """
     Generate AI response using the FastAPI backend
+    Note: Falls back to direct Azure connection if API is not available
     """
     try:
         # Prepare chat history for API
@@ -153,7 +175,7 @@ def generate_chat_response_api(user_message, initial_context, debate_topic, chat
             "initial_context": initial_context,
             "debate_topic": debate_topic,
             "chat_history": api_history
-        })
+        }, timeout=10)  # Add timeout to prevent hanging
         
         if response.status_code == 200:
             return response.json().get("response", "Sorry, I couldn't generate a response.")
@@ -161,9 +183,17 @@ def generate_chat_response_api(user_message, initial_context, debate_topic, chat
             error_msg = response.json().get("error", "Unknown API error")
             raise Exception(f"API Error: {error_msg}")
             
+    except requests.exceptions.ConnectionError:
+        # API server not running - fall back to direct method
+        st.info("🔄 API server not available, using direct Azure connection...")
+        return generate_chat_response_direct(user_message, initial_context, debate_topic, chat_history)
+    except requests.exceptions.Timeout:
+        # API timeout - fall back to direct method
+        st.warning("⏱️ API timeout, using direct Azure connection...")
+        return generate_chat_response_direct(user_message, initial_context, debate_topic, chat_history)
     except Exception as e:
-        # Fallback to direct method if API fails
-        st.warning("🔄 API unavailable, using direct connection...")
+        # Other API errors - fall back to direct method
+        st.warning(f"🔄 API issue ({str(e)}), using direct Azure connection...")
         return generate_chat_response_direct(user_message, initial_context, debate_topic, chat_history)
 
 def generate_chat_response_direct(user_message, initial_context, debate_topic, chat_history):
@@ -199,28 +229,27 @@ Conversation style:
 - Use relevant examples when helpful
 - Focus on actionable advice
 - Reference the initial analysis when relevant"""
-
-    # Build conversation history for context
-    conversation_context = ""
-    if len(chat_history) > 1:  # More than just the current message
-        recent_messages = chat_history[-6:]  # Last 6 messages for context
-        for msg in recent_messages[:-1]:  # Exclude current message
-            role = "Student" if msg["role"] == "user" else "Coach"
-            conversation_context += f"{role}: {msg['content']}\n"
-    
-    # **TIP 10: Enhanced user prompt** with context
-    enhanced_prompt = f"""Previous conversation:
-{conversation_context}
-
-Current student question: {user_message}
-
-Please provide a helpful response as their debate coach."""
     
     try:
-        response = call_ai(system_prompt, enhanced_prompt)
+        messages = st.session_state.chat_messages + [{"role": "system", "content": system_prompt}]
+        response = call_ai(messages)
+        if not response or response.strip() == "":
+            # Handle empty response
+            return generate_fallback_response(user_message, initial_context, debate_topic)
         return response
     except Exception as e:
-        # **Fallback response** when Azure fails
+        error_msg = str(e).lower()
+        # Better error categorization
+        if "authentication" in error_msg or "unauthorized" in error_msg:
+            st.error("🔐 Azure OpenAI authentication failed. Please check API credentials.")
+        elif "not found" in error_msg or "404" in error_msg:
+            st.error("🔍 Azure OpenAI model not found. Please check deployment name.")
+        elif "connection" in error_msg or "timeout" in error_msg:
+            st.warning("🌐 Connection issue with Azure OpenAI. Using fallback response.")
+        else:
+            st.warning("⚠️ AI service temporarily unavailable. Using fallback response.")
+        
+        # Always provide fallback response instead of failing completely
         return generate_fallback_response(user_message, initial_context, debate_topic)
 
 def generate_fallback_response(user_message, initial_context, debate_topic):
@@ -324,7 +353,6 @@ def render_chat_suggestions():
                     "role": "user",
                     "content": suggestion
                 })
-                st.rerun()
 
 def render_chat_metrics():
     """Display chat metrics and engagement stats"""
