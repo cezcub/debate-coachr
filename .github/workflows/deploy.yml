@@ -1,11 +1,22 @@
-name: Deploy to Azure Container Apps
+name: Full Deploy to Azure Container Apps
 
 on:
+  # Only trigger on manual deployment or infrastructure changes
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for full deployment'
+        required: true
+        default: 'Manual deployment'
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+    paths:
+      # Only trigger full deployment for infrastructure changes
+      - '.github/workflows/deploy.yml'
+      - 'deployment/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - 'deployment/docker/**'
 
 env:
   RESOURCE_GROUP: coachr-ai-rg
@@ -15,6 +26,7 @@ env:
   CONTAINER_ENV_NAME: coachr-ai-env
   IMAGE_NAME: coachr-ai
   IMAGE_TAG: latest
+  MANAGED_IDENTITY_NAME: coachr-github-access
 
 # Required for OIDC authentication
 permissions:
@@ -56,7 +68,6 @@ jobs:
     - name: Create System-Assigned Managed Identity for Container App
       run: |
         # Create a user-assigned managed identity for the container app
-        MANAGED_IDENTITY_NAME="${{ env.CONTAINER_APP_NAME }}-identity"
         
         az identity create \
           --name $MANAGED_IDENTITY_NAME \
