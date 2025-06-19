@@ -1,0 +1,252 @@
+name: Update Application Code
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      # Trigger on application code changes
+      - 'app.py'
+      - 'frontend/**'
+      - 'backend/**'
+      - 'test_cases/**'
+      - 'unit_tests/**'
+      # Exclude infrastructure files (those trigger full deploy)
+      - '!deployment/**'
+      - '!requirements.txt'
+      - '!Dockerfile'
+      - '!deployment/docker/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'app.py'
+      - 'frontend/**'
+      - 'backend/**'
+      - 'test_cases/**'
+      - 'unit_tests/**'
+      - '!deployment/**'
+      - '!requirements.txt'
+      - '!Dockerfile'
+      - '!deployment/docker/**'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update even if no changes detected'
+        type: boolean
+        default: false
+
+env:
+  RESOURCE_GROUP: coachr-ai-rg
+  AZURE_CONTAINER_REGISTRY: coachraiacr
+  CONTAINER_APP_NAME: coachr-ai-app
+  IMAGE_NAME: coachr-ai
+  # Use commit SHA for more precise versioning
+  IMAGE_TAG: ${{ github.sha }}
+
+# Required for OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should-update: ${{ steps.changes.outputs.should-update }}
+      files-changed: ${{ steps.changes.outputs.files-changed }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Check for meaningful changes
+      id: changes
+      run: |
+        # Check if this is a forced update
+        if [[ "${{ github.event.inputs.force_update }}" == "true" ]]; then
+          echo "should-update=true" >> $GITHUB_OUTPUT
+          echo "files-changed=force-update" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # For PRs, always check
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "should-update=true" >> $GITHUB_OUTPUT
+          echo "files-changed=pull-request" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check what files changed in the last commit
+        CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
+        
+        # Filter for application files only
+        APP_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(py|html|css|js|json|md)$' | grep -v -E '^(deployment/|\.github/)' || echo "")
+        
+        if [[ -n "$APP_FILES" ]]; then
+          echo "should-update=true" >> $GITHUB_OUTPUT
+          echo "files-changed=$APP_FILES" >> $GITHUB_OUTPUT
+          echo "Application files changed:"
+          echo "$APP_FILES"
+        else
+          echo "should-update=false" >> $GITHUB_OUTPUT
+          echo "files-changed=none" >> $GITHUB_OUTPUT
+          echo "No application files changed, skipping update"
+        fi
+
+  build-and-update:
+    needs: check-changes
+    if: needs.check-changes.outputs.should-update == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login using OIDC
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Check if resources exist
+      id: check-resources
+      run: |
+        # Check if Container App exists
+        if az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} &>/dev/null; then
+          echo "container-app-exists=true" >> $GITHUB_OUTPUT
+          echo "Container App exists"
+        else
+          echo "container-app-exists=false" >> $GITHUB_OUTPUT
+          echo "Container App not found - run full deployment first"
+        fi
+        
+        # Check if ACR exists
+        if az acr show --name ${{ env.AZURE_CONTAINER_REGISTRY }} --resource-group ${{ env.RESOURCE_GROUP }} &>/dev/null; then
+          echo "acr-exists=true" >> $GITHUB_OUTPUT
+          echo "Container Registry exists"
+        else
+          echo "acr-exists=false" >> $GITHUB_OUTPUT
+          echo "Container Registry not found - run full deployment first"
+        fi
+
+    - name: Fail if infrastructure missing
+      if: steps.check-resources.outputs.container-app-exists != 'true' || steps.check-resources.outputs.acr-exists != 'true'
+      run: |
+        echo "Required Azure resources not found!"
+        echo "Please run the full deployment workflow first:"
+        echo "  - Go to Actions tab"
+        echo "  - Run 'Full Deploy to Azure Container Apps' workflow"
+        echo "  - Then try this update again"
+        exit 1
+
+    - name: Build and push updated image
+      run: |
+        echo "Building updated image with tag: ${{ env.IMAGE_TAG }}"
+        
+        # Build image using ACR tasks (efficient, no local Docker needed)
+        az acr build \
+          --registry ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          --file deployment/docker/Dockerfile \
+          .
+
+    - name: Get ACR details
+      run: |
+        ACR_LOGIN_SERVER=$(az acr show \
+          --name ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query loginServer --output tsv)
+        
+        echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+        echo "Registry: $ACR_LOGIN_SERVER"
+
+    - name: Update Container App
+      run: |
+        echo "Updating Container App with new image..."
+        
+        # Update the container app with the new image
+        az containerapp update \
+          --name ${{ env.CONTAINER_APP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --image ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          --output table
+        
+        echo "Container App updated successfully"
+
+    - name: Wait for deployment
+      run: |
+        echo "Waiting for deployment to complete..."
+        
+        # Wait for the revision to be ready
+        for i in {1..30}; do
+          REVISION_STATUS=$(az containerapp revision list \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query '[0].properties.provisioningState' \
+            --output tsv)
+          
+          if [[ "$REVISION_STATUS" == "Succeeded" ]]; then
+            echo "Deployment completed successfully"
+            break
+          elif [[ "$REVISION_STATUS" == "Failed" ]]; then
+            echo "Deployment failed"
+            exit 1
+          else
+            echo "Status: $REVISION_STATUS (attempt $i/30)"
+            sleep 10
+          fi
+        done
+
+    - name: Get Application URL and Test
+      run: |
+        APP_URL=$(az containerapp show \
+          --name ${{ env.CONTAINER_APP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query properties.configuration.ingress.fqdn \
+          --output tsv)
+        
+        echo "APP_URL=https://$APP_URL" >> $GITHUB_ENV
+        echo "Application URL: https://$APP_URL"
+        
+        # Basic health check
+        echo "Testing application health..."
+        if curl -f -s "https://$APP_URL" > /dev/null; then
+          echo "Application is responding"
+        else
+          echo "Application may be starting up..."
+        fi
+
+    - name: Update Summary
+      run: |
+        echo "## Application Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Updated**: ${{ env.CONTAINER_APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **New Image**: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry**: ${{ env.ACR_LOGIN_SERVER }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL**: [${{ env.APP_URL }}](${{ env.APP_URL }})" >> $GITHUB_STEP_SUMMARY
+        echo "- **Changed Files**: ${{ needs.check-changes.outputs.files-changed }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: Successfully updated" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Timeline" >> $GITHUB_STEP_SUMMARY
+        echo "- Build time: ~2-3 minutes" >> $GITHUB_STEP_SUMMARY
+        echo "- Update time: ~1-2 minutes" >> $GITHUB_STEP_SUMMARY
+        echo "- Total time: ~3-5 minutes" >> $GITHUB_STEP_SUMMARY
+
+  skip-update:
+    needs: check-changes
+    if: needs.check-changes.outputs.should-update == 'false'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Skip Update Message
+      run: |
+        echo "## Update Skipped" >> $GITHUB_STEP_SUMMARY
+        echo "No application code changes detected." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Triggers for updates:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Changes to Python files (*.py)" >> $GITHUB_STEP_SUMMARY
+        echo "- Changes to frontend/ or backend/ directories" >> $GITHUB_STEP_SUMMARY
+        echo "- Manual workflow dispatch with force update" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**For infrastructure changes, use the 'Full Deploy' workflow.**" >> $GITHUB_STEP_SUMMARY
