@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   coachr-ai:
-    build: .
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
     ports:
       - "8501:8501"  # Streamlit
       - "8000:8000"  # FastAPI
@@ -10,8 +12,8 @@ services:
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
     volumes:
-      # Optional: Mount for development
-      - .:/app
+      # Optional: Mount project root for development
+      - ../../:/app
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]

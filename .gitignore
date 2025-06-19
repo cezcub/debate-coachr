@@ -6,3 +6,5 @@ __pycache__/
 
 # Virtual environments
 venv/
+
+deployment/azure/setup-managed-identity.sh

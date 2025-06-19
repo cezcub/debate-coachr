@@ -3,6 +3,7 @@ FROM python:3.9-slim
 # Install system dependencies for audio processing and ML
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    azure-cli \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -30,7 +31,7 @@ USER appuser
 EXPOSE 8501 8000
 
 # Create startup script
-COPY --chown=appuser:appuser start.sh .
+COPY --chown=appuser:appuser deployment/azure/start.sh ./start.sh
 RUN chmod +x start.sh
 
 # Health check

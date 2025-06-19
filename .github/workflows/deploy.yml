@@ -5,47 +5,157 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
-  AZURE_CONTAINER_REGISTRY: coachraiacr
-  CONTAINER_NAME: coachr-ai
   RESOURCE_GROUP: coachr-ai-rg
+  LOCATION: eastus
+  AZURE_CONTAINER_REGISTRY: coachraiacr
   CONTAINER_APP_NAME: coachr-ai-app
+  CONTAINER_ENV_NAME: coachr-ai-env
+  IMAGE_NAME: coachr-ai
+  IMAGE_TAG: latest
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: 🐳 Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
-    - name: 🔑 Login to Azure
-      uses: azure/login@v1
+    - name: Azure login
+      uses: azure/login@v2
       with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        auth-type: IDENTITY
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        enable-AzPSSession: true
 
-    - name: 🏗️ Login to Azure Container Registry
-      run: az acr login --name ${{ env.AZURE_CONTAINER_REGISTRY }}
-
-    - name: 🔨 Build and push Docker image
+    - name: Create Resource Group
       run: |
-        IMAGE_TAG=${{ github.sha }}
-        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.CONTAINER_NAME }}:$IMAGE_TAG .
-        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.CONTAINER_NAME }}:$IMAGE_TAG
-        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        az group create \
+          --name ${{ env.RESOURCE_GROUP }} \
+          --location ${{ env.LOCATION }} \
+          --output table || echo "Resource group already exists"
 
-    - name: 🚀 Deploy to Azure Container Apps
+    - name: Create Azure Container Registry with Managed Identity
       run: |
-        az containerapp update \
+        # Create ACR with admin disabled (more secure)
+        az acr create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --sku Basic \
+          --admin-enabled false \
+          --output table || echo "ACR already exists"
+
+    - name: Create System-Assigned Managed Identity for Container App
+      run: |
+        # Create a user-assigned managed identity for the container app
+        MANAGED_IDENTITY_NAME="${{ env.CONTAINER_APP_NAME }}-identity"
+        
+        az identity create \
+          --name $MANAGED_IDENTITY_NAME \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --location ${{ env.LOCATION }} \
+          --output table || echo "Managed identity already exists"
+        
+        # Get the managed identity details
+        MANAGED_IDENTITY_ID=$(az identity show \
+          --name $MANAGED_IDENTITY_NAME \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query id --output tsv)
+        
+        MANAGED_IDENTITY_CLIENT_ID=$(az identity show \
+          --name $MANAGED_IDENTITY_NAME \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query clientId --output tsv)
+        
+        echo "MANAGED_IDENTITY_NAME=$MANAGED_IDENTITY_NAME" >> $GITHUB_ENV
+        echo "MANAGED_IDENTITY_ID=$MANAGED_IDENTITY_ID" >> $GITHUB_ENV
+        echo "MANAGED_IDENTITY_CLIENT_ID=$MANAGED_IDENTITY_CLIENT_ID" >> $GITHUB_ENV
+
+    - name: Assign ACR Pull Role to Managed Identity
+      run: |
+        # Get ACR resource ID
+        ACR_ID=$(az acr show \
+          --name ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query id --output tsv)
+        
+        # Assign AcrPull role to the managed identity
+        az role assignment create \
+          --assignee ${{ env.MANAGED_IDENTITY_CLIENT_ID }} \
+          --role AcrPull \
+          --scope $ACR_ID || echo "Role assignment already exists"
+
+    - name: Build and push image using ACR Tasks
+      run: |
+        # Use Azure Container Registry build tasks (no local Docker daemon required)
+        az acr build \
+          --registry ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          --file deployment/docker/Dockerfile \
+          .
+
+    - name: Get ACR details
+      run: |
+        ACR_LOGIN_SERVER=$(az acr show \
+          --name ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query loginServer --output tsv)
+        
+        echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+
+    - name: Create Container Apps Environment
+      run: |
+        az containerapp env create \
+          --name ${{ env.CONTAINER_ENV_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --location ${{ env.LOCATION }} \
+          --output table || echo "Environment already exists"
+
+    - name: Deploy to Azure Container Apps with Managed Identity
+      run: |
+        az containerapp create \
           --name ${{ env.CONTAINER_APP_NAME }} \
           --resource-group ${{ env.RESOURCE_GROUP }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.CONTAINER_NAME }}:${{ env.IMAGE_TAG }}
+          --environment ${{ env.CONTAINER_ENV_NAME }} \
+          --image ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+          --registry-identity ${{ env.MANAGED_IDENTITY_ID }} \
+          --user-assigned ${{ env.MANAGED_IDENTITY_ID }} \
+          --target-port 8501 \
+          --ingress external \
+          --min-replicas 1 \
+          --max-replicas 5 \
+          --cpu 2.0 \
+          --memory 4.0Gi \
+          --secrets azure-openai-key="${{ secrets.AZURE_OPENAI_API_KEY }}" \
+          --env-vars AZURE_OPENAI_API_KEY=secretref:azure-openai-key AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+          --replace \
+          --output table
 
-    - name: 📊 Get application URL
+    - name: Get Application URL
       run: |
-        APP_URL=$(az containerapp show --name ${{ env.CONTAINER_APP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn --output tsv)
-        echo "🌐 Application deployed to: https://$APP_URL"
+        APP_URL=$(az containerapp show \
+          --name ${{ env.CONTAINER_APP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --query properties.configuration.ingress.fqdn \
+          --output tsv)
+        
+        echo "Deployment completed successfully!"
+        echo "Application URL: https://$APP_URL"
+        echo "APP_URL=https://$APP_URL" >> $GITHUB_ENV
+
+    - name: Deployment Summary
+      run: |
+        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Application**: ${{ env.CONTAINER_APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Resource Group**: ${{ env.RESOURCE_GROUP }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry**: ${{ env.ACR_LOGIN_SERVER }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image**: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL**: [${{ env.APP_URL }}](${{ env.APP_URL }})" >> $GITHUB_STEP_SUMMARY
+        echo "- **Managed Identity**: ${{ env.MANAGED_IDENTITY_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: Successfully deployed with managed identity" >> $GITHUB_STEP_SUMMARY
