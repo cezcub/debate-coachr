@@ -3,7 +3,9 @@ from openai import AzureOpenAI
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv('../.env', override=True)  # Override system env vars with .env file values
+# Use absolute path to ensure it works regardless of working directory
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+load_dotenv(env_path, override=True)  # Override system env vars with .env file values
     
 def call_ai(messages):
     # Get Azure OpenAI credentials from environment variables
@@ -19,12 +21,22 @@ def call_ai(messages):
         azure_endpoint=endpoint
         )
     try:
+        # Validate messages format before sending
+        validated_messages = []
+        for i, m in enumerate(messages):
+            if not isinstance(m.get("content"), str):
+                content = str(m.get("content")) if m.get("content") is not None else ""
+            else:
+                content = m.get("content")
+            
+            validated_messages.append({
+                "role": m["role"], 
+                "content": content
+            })
+        
         completion = client.chat.completions.create(
             model='gpt-4.1',
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in messages
-            ]
+            messages=validated_messages
         )
         return completion.choices[0].message.content
     except Exception as e:
@@ -44,7 +56,18 @@ def pf_feedback(resolution, transcription, side):
     messages = [{"role": "system", "content": prompt}, {"role": "user", "content": transcription}]
     return call_ai(messages)
 
-def case_feedback(resolution, case, side):
-    prompt = f'You are a public forum debate coach. Your job is to analyze cases provided of high school public forum debate and provide detailed feedback on how it could be improved. The resolution being debated in this round is {resolution} Give as much feedback (4-5 pieces of feedback per contention at MINIMUM) as possible on the content and strategy of the case. The team you are analyzing is debating the {side} side of the resolution. Make sure to analyze the uniqueness, link, internal link, and impact of each and every contention. Remember that the case will be delivered in a 4 minute speech.'
+def case_feedback(resolution, case, side, upload_format="plaintext"):
+    # Ensure case is a string
+    if not isinstance(case, str):
+        if hasattr(case, '__str__'):
+            case = str(case)
+        else:
+            case = "Error: Invalid case format provided"
+    
+    if upload_format == "card format":
+        prompt = f'You are a public forum debate coach. Your job is to analyze structured debate cards provided of high school public forum debate and provide detailed feedback on how they could be improved. The resolution being debated is {resolution}. Give detailed feedback (4-5 pieces of feedback per card at MINIMUM) on the content, evidence quality, and strategic value of each card. The team you are analyzing is debating the {side} side of the resolution. Focus on analyzing the warrant, evidence credibility, impact, and how well each card supports the overall argument structure. Consider how these cards would work in a 4 minute constructive speech and provide suggestions for card organization and presentation. Be warned; the text will likely appear as an incoherent jumble, but in reality it is a case of cards with citations deleted'
+    else:
+        prompt = f'You are a public forum debate coach. Your job is to analyze cases provided of high school public forum debate and provide detailed feedback on how it could be improved. The resolution being debated in this round is {resolution} Give as much feedback (4-5 pieces of feedback per contention at MINIMUM) as possible on the content and strategy of the case. The team you are analyzing is debating the {side} side of the resolution. Make sure to analyze the uniqueness, link, internal link, and impact of each and every contention. Remember that the case will be delivered in a 4 minute speech.'
+    
     messages = [{"role": "system", "content": prompt}, {"role": "user", "content": case}]
     return call_ai(messages)

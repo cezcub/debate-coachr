@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 import whisper
+import os
+from dotenv import load_dotenv
 from backend.transcription import router as audio_router
 from backend.case import router as text_router
+
+# Load environment variables at startup
+load_dotenv()
 
 app = FastAPI()
 
