@@ -21,7 +21,7 @@ on:
 env:
   RESOURCE_GROUP: coachr-ai-rg
   LOCATION: eastus
-  AZURE_CONTAINER_REGISTRY: coachraiacr
+  AZURE_CONTAINER_REGISTRY: coachracr
   CONTAINER_APP_NAME: coachr-ai-app
   CONTAINER_ENV_NAME: coachr-ai-env
   IMAGE_NAME: coachr-ai
