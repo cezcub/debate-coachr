@@ -1,6 +1,11 @@
 import streamlit as st
+import os
+from dotenv import load_dotenv
 from frontend.pf_feedback import get_feedback, display_pf_results
 from frontend.case import text_upload
+
+# Load environment variables at app startup
+load_dotenv()
 
 FASTAPI_URL = "http://127.0.0.1:8000/"
 
@@ -162,7 +167,6 @@ def main():
                         with st.spinner("🔄 Processing your audio and generating feedback..."):
                             try:
                                 get_feedback(temp_audio_path, FASTAPI_URL + "transcribe/", debate_topic, side)
-                                st.balloons()  # Celebration animation
                                 st.success("🎉 Analysis complete! Your feedback is ready below.")
                             except Exception as e:
                                 st.error(f"❌ An error occurred: {str(e)}")

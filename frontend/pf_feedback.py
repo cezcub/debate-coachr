@@ -62,8 +62,7 @@ def get_feedback(temp_audio_path, url, debate_topic, side):
                     "completed": True
                 }
                 
-                # **TIP 3: Celebration and success feedback**
-                st.balloons()
+                # **TIP 3: Success feedback**
                 st.success("🎉 Your debate analysis is ready!")
             
             else:
