@@ -148,7 +148,6 @@ jobs:
           --memory 4.0Gi \
           --secrets azure-openai-key="${{ secrets.AZURE_OPENAI_API_KEY }}" \
           --env-vars AZURE_OPENAI_API_KEY=secretref:azure-openai-key AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
-          --replace \
           --output table
 
     - name: Get Application URL
