@@ -183,10 +183,6 @@ docker-compose -f deployment/docker/docker-compose.yml up
 
 Enable debug output by checking the console logs in your browser developer tools or terminal output.
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Support
 
 For issues and questions:
